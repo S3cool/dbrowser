@@ -1429,6 +1429,7 @@ function buildBrowser(w){
       '<button class="ib bf" disabled><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>'+
       '<button class="ib br"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>'+
       '<form class="omni"><input class="ba" placeholder="'+t("searchPlaceholder")+'"></form>'+
+      '<button type="button" class="pill bproxy" style="height:26px;padding:0 9px;font-size:11px;margin-left:4px" title="프록시 우회 모드 전환">Proxy: OFF</button>'+
       '<select class="eng" title="Search engine"><option value="brave">Brave</option><option value="ddg">DuckDuckGo</option><option value="wiki">Wikipedia</option></select>'+
     '</div><div class="prog"><i></i></div><div class="page" style="position:relative;flex:1;min-height:0;overflow:auto"></div>';
   var page=w.body.querySelector(".page"),addr=w.body.querySelector(".ba"),prog=w.body.querySelector(".prog i"),relBtn=w.body.querySelector(".br");
@@ -1469,20 +1470,22 @@ function buildBrowser(w){
       var wl=page.querySelector(".whylist");why.forEach(function(x){var d=document.createElement("div");d.className="why";d.textContent="· "+x;wl.appendChild(d)});
       $("#rtB",page).onclick=function(){showResults(q)};
       $("#rbB",page).onclick=function(){window.open("https://search.brave.com/search?q="+encodeURIComponent(q),"_blank","noopener")};progEnd()})}
-  function render(){var h=hist[idx];addr.value=h.url||h.q;
+  var BKEY="dbcr-browser-"+((load("dbcr-user",null)||{}).email||"guest");
+  function saveBrowser(){var off=Math.max(0,hist.length-100);save(BKEY,{hist:hist.slice(off),idx:Math.max(0,idx-off)})}
+  function render(){var h=hist[idx];addr.value=h.url||h.q;saveBrowser();if(typeof syncProxyBtn==="function")syncProxyBtn();
     w.el.querySelector(".wtitle").textContent=h.title||w.app.t;
     w.body.querySelector(".bb").disabled=idx<1;w.body.querySelector(".bf").disabled=idx>=hist.length-1;
-    if(h.url&&noEmbed(h.url)){
-      fr=null;progEnd();
-      card('<h3>'+host(h.url)+'</h3><p>이 사이트는 다른 페이지 안에서 열리지 않도록 막혀 있어요. 새 탭에서 열어주세요.</p><div class="row2"><button class="pill pri" id="neB">새 탭에서 열기</button></div>');
-      $("#neB",page).onclick=function(){window.open(h.url,"_blank","noopener")};
-    }
-    else if(h.url){
+    if(h.url){
       if(!fr){fr=document.createElement("iframe");fr.title="page";fr.setAttribute("referrerpolicy","no-referrer");fr.onload=function(){progEnd()}}
       page.innerHTML="";page.appendChild(fr);
-      var ext=document.createElement("button");ext.type="button";ext.className="openext";ext.innerHTML="⧉ 이 사이트가 안 보이면 새 탭에서 열기";
+      var ext=document.createElement("button");ext.type="button";ext.className="openext";ext.innerHTML="⧉ 새 탭에서 열기";
       ext.onclick=function(){window.open(h.url,"_blank","noopener")};page.appendChild(ext);
-      progStart();fr.src=h.url;
+      progStart();
+      if(!h.forceDirect && (noEmbed(h.url) || h.useProxy)){
+        fr.src = PROXIES[0](h.url);
+      } else {
+        fr.src = h.url;
+      }
     }
     else if(h.q) showResults(h.q);
     else { fr=null; showNtp(); }}
@@ -1495,9 +1498,30 @@ function buildBrowser(w){
   relBtn.onclick=function(){relBtn.classList.remove("spin");void relBtn.offsetWidth;relBtn.classList.add("spin");
     var h=hist[idx];if(h.url){render()}else if(h.q)showResults(h.q)};
   w.body.querySelector(".omni").onsubmit=function(e){e.preventDefault();submit(addr.value);addr.blur()};
+  var proxyBtn=w.body.querySelector(".bproxy");
+  function syncProxyBtn(){
+    var h=hist[idx];
+    var on=!!(h&&(h.useProxy||(h.url&&noEmbed(h.url))));
+    proxyBtn.textContent=on?"Proxy: ON":"Proxy: OFF";
+    proxyBtn.classList.toggle("pri",on);
+  }
+  proxyBtn.onclick=function(){
+    var h=hist[idx];
+    if(!h||!h.url)return;
+    h.useProxy=!(h.useProxy||noEmbed(h.url));
+    if(!h.useProxy && noEmbed(h.url)){
+      // Force direct load if user explicitly turns proxy off
+      h.forceDirect=true;
+    } else {
+      h.forceDirect=false;
+    }
+    render();
+  };
   var engSel=w.body.querySelector(".eng");engSel.value=SETTINGS.engine;
   engSel.onchange=function(){SETTINGS.engine=engSel.value;persistSettings();var h=hist[idx];if(h.q&&!h.url)showResults(h.q)};
   w.submitQuery=submit;
+  var stSaved=load(BKEY,null);
+  if(stSaved&&stSaved.hist&&stSaved.hist.length){hist=stSaved.hist;idx=Math.min(Math.max(0,stSaved.idx||0),hist.length-1)}
   render();
 }
 
